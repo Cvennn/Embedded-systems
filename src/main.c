@@ -1,3 +1,9 @@
+/*
+Tehtävien pisteet
+Tehtävä 1, 1p.
+LEDit kiertävät eri värit punainen -> keltainen -> vihreä -> punainen jne. Toteutus tehty taskien kautta käyttäen tilakonetta.
+*/
+
 #include <stdio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
