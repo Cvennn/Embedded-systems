@@ -12,14 +12,21 @@ LEDit kiertävät eri värit punainen -> keltainen -> vihreä -> punainen jne. T
 #include <zephyr/sys/printk.h>
 #include <inttypes.h>
 
+// configure buttons
+#define BUTTON_0 DT_ALIAS(sw0)
+
 // Led pin configurations
 static const struct gpio_dt_spec red = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
 static const struct gpio_dt_spec green = GPIO_DT_SPEC_GET(DT_ALIAS(led1), gpios);
 static const struct gpio_dt_spec blue = GPIO_DT_SPEC_GET(DT_ALIAS(led2), gpios);
+static const struct gpio_dt_spec button_0 = GPIO_DT_SPEC_GET_OR(BUTTON_0, gpios, {0});
+static struct gpio_callback button_0_data;
 
 // led thread initialization
 #define STACKSIZE 500
 #define PRIORITY 5
+
+
 void red_led_task(void *, void *, void*);
 void green_led_task(void *, void *, void*);
 void blue_led_task(void *, void *, void*);
@@ -32,9 +39,16 @@ K_THREAD_DEFINE(yellow_thread,STACKSIZE,yellow_led_task,NULL,NULL,NULL,PRIORITY,
 
 int led_state;
 
+// Button interrupt handler
+void button_0_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
+{
+	printk("Button pressed\n");
+}
+
 // Main program
 int main(void)
 {
+	init_button();
 	init_led();
 
 	return 0;
@@ -65,6 +79,34 @@ int  init_led() {
 	gpio_pin_set_dt(&green,0);
 	gpio_pin_set_dt(&blue,0);
 	printk("Led initialized ok\n");
+	
+	return 0;
+}
+
+// Button initialization
+int init_button() {
+
+	int retb;
+	if (!gpio_is_ready_dt(&button_0)) {
+		printk("Error: button 0 is not ready\n");
+		return -1;
+	}
+
+	retb = gpio_pin_configure_dt(&button_0, GPIO_INPUT);
+	if (retb != 0) {
+		printk("Error: failed to configure pin\n");
+		return -1;
+	}
+
+	retb = gpio_pin_interrupt_configure_dt(&button_0, GPIO_INT_EDGE_TO_ACTIVE);
+	if (retb != 0) {
+		printk("Error: failed to configure interrupt on pin\n");
+		return -1;
+	}
+
+	gpio_init_callback(&button_0_data, button_0_handler, BIT(button_0.pin));
+	gpio_add_callback(button_0.port, &button_0_data);
+	printk("Set up button 0 ok\n");
 	
 	return 0;
 }
