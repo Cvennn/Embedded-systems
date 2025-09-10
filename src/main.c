@@ -48,8 +48,14 @@ void button_0_handler(const struct device *dev, struct gpio_callback *cb, uint32
 	if(led_state != 5){
 		prev_led_state = led_state;
 		led_state = 5;
+		k_thread_suspend(red_thread);
+		k_thread_suspend(green_thread);
+		k_thread_suspend(yellow_thread);
 	} else{
 		led_state = prev_led_state;
+		k_thread_resume(red_thread);
+		k_thread_resume(green_thread);
+		k_thread_resume(yellow_thread);
 	}
 }
 
@@ -130,9 +136,10 @@ void red_led_task(void *, void *, void*) {
 		gpio_pin_set_dt(&red,0);
 		printk("Red off\n");
 		k_sleep(K_SECONDS(1));	
-		if(led_state == 0){
-			led_state = 1;
-		}
+		led_state = 1;
+		//if(led_state == 0){
+		//	led_state = 1;
+		//}
 	}
 	else
 	k_msleep(100);
@@ -150,9 +157,10 @@ void yellow_led_task(void *, void *, void*) {
 		gpio_pin_set_dt(&green,0);
 		printk("Yellow off\n");
 		k_sleep(K_SECONDS(1));
-		if(led_state == 1){
+		led_state = 2;
+		/*if(led_state == 1){
 			led_state = 2;
-		}
+		}*/
 	}
 	else
 	k_msleep(100);
@@ -168,9 +176,10 @@ void green_led_task(void *, void *, void*) {
 		gpio_pin_set_dt(&green,0);
 		printk("Green off\n");
 		k_sleep(K_SECONDS(1));
-		if(led_state == 2){
+		led_state = 0;
+		/*if(led_state == 2){
 			led_state = 0;
-		}
+		}*/
 	}
 	else
 	k_msleep(100);
