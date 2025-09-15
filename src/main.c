@@ -13,6 +13,7 @@ Napeille 2-4 lis채tty p채채lle/pois toiminto, nappi 5 k채ynnist채채 keltaisen v�
 #include <zephyr/sys/util.h>
 #include <zephyr/sys/printk.h>
 #include <inttypes.h>
+#include <zephyr/drivers/uart.h>
 
 // configure buttons
 #define BUTTON_0 DT_ALIAS(sw0)
@@ -46,9 +47,22 @@ K_THREAD_DEFINE(green_thread,STACKSIZE,green_led_task,NULL,NULL,NULL,PRIORITY,0,
 K_THREAD_DEFINE(blue_thread,STACKSIZE,blue_led_task,NULL,NULL,NULL,PRIORITY,0,0);
 K_THREAD_DEFINE(yellow_thread,STACKSIZE,yellow_led_task,NULL,NULL,NULL,PRIORITY,0,0);
 
+// UART initialization
+#define UART_DEVICE_NODE DT_CHOSEN(zephyr_shell_uart)
+static const struct device *const uart_dev = DEVICE_DT_GET(UART_DEVICE_NODE);
+
+// Create dispatcher FIFO buffer
+K_FIFO_DEFINE(dispatcher_fifo);
+
 int r_manual, y_manual, g_manual = 0;
 int led_state, led_yellow_state;
 int prev_led_state;
+
+// FIFO dispatcher data type
+struct data_t {
+	void *fifo_reserved;
+	char msg[20];
+};
 
 // Button interrupt handler
 void button_0_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
@@ -136,13 +150,11 @@ void button_4_handler(const struct device *dev, struct gpio_callback *cb, uint32
 		k_thread_suspend(yellow_thread);
 	}
 }
-
-// Main program
-int main(void)
-{
-	init_button();
-	init_led();
-
+// UART initialization
+int init_uart(void) {
+	if (!device_is_ready(uart_dev)) {
+		return 1;
+	} 
 	return 0;
 }
 
@@ -223,6 +235,20 @@ int init_button() {
 	return 0;
 }
 
+
+// Main program
+int main(void)
+{
+	init_button();
+	init_led();
+	int ret = init_uart();
+	if (ret != 0) {
+		printk("UART initialization failed!\n");
+		return ret;
+	}
+	return 0;
+}
+
 // Tasks to handle leds
 void red_led_task(void *, void *, void*) {
 	while(true){	
@@ -293,3 +319,76 @@ void blue_led_task(void *, void *, void*) {
 	k_msleep(100);
 	}
 }
+
+static void uart_task(void *unused1, void *unused2, void *unused3)
+{
+	// Received character from UART
+	char rc=0;
+	// Message from UART
+	char uart_msg[20];
+	memset(uart_msg,0,20);
+	int uart_msg_cnt = 0;
+
+	while (true) {
+		// Ask UART if data available
+		if (uart_poll_in(uart_dev,&rc) == 0) {
+			// printk("Received: %c\n",rc);
+			// If character is not newline, add to UART message buffer
+			if (rc != '\r') {
+				uart_msg[uart_msg_cnt] = rc;
+				uart_msg_cnt++;
+			// Character is newline, copy dispatcher data and put to FIFO buffer
+			} else {
+				printk("UART msg: %s\n", uart_msg);
+                
+				struct data_t *buf = k_malloc(sizeof(struct data_t));
+				if (buf == NULL) {
+					return;
+				}
+				// Copy UART message to dispatcher data
+				// strncpy(buf->msg, 20, uart_msg); // mit채 ihmett채, miksi kaatuu!!
+				snprintf(buf->msg, 20, "%s", uart_msg);
+				k_fifo_put(&dispatcher_fifo, buf);
+				printk("fifo data: %s\n",buf->msg);
+				// You need to:
+				// Put dispatcher data to FIFO buffer
+
+				// Clear UART receive buffer
+				uart_msg_cnt = 0;
+				memset(uart_msg,0,20);
+
+				// Clear UART message buffer
+				uart_msg_cnt = 0;
+				memset(uart_msg,0,20);
+			}
+		}
+		k_msleep(10);
+	}
+	
+}
+
+
+/* Dispatcher task
+ */
+static void dispatcher_task(void *unused1, void *unused2, void *unused3)
+{
+	while (true) {
+		// Receive dispatcher data from uart_task fifo
+		struct data_t *rec_item = k_fifo_get(&dispatcher_fifo, K_FOREVER);
+		char sequence[20];
+		memcpy(sequence,rec_item->msg,20);
+		k_free(rec_item);
+
+		printk("Dispatcher: %s\n", sequence);
+        // You need to:
+        // Parse color and time from the fifo data
+        // Example
+        //    char color = sequence[0];
+        //    int time = atoi(sequence+2);
+		//    printk("Data: %c %d\n", color, time);
+        // Send the parsed color information to tasks using fifo
+        // Use release signal to control sequence or k_yield
+	}
+}
+K_THREAD_DEFINE(dis_thread,STACKSIZE,dispatcher_task,NULL,NULL,NULL,PRIORITY,0,0);
+K_THREAD_DEFINE(uart_thread,STACKSIZE,uart_task,NULL,NULL,NULL,PRIORITY,0,0);

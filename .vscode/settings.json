@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "util.h": "c",
-        "inttypes.h": "c"
+        "inttypes.h": "c",
+        "gpio.h": "c"
     }
 }
