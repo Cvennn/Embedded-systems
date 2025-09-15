@@ -1,8 +1,9 @@
 /*
 Tehtävien pisteet
-Tehtävä 1, 2p.
+Tehtävä 1, 3p.
 LEDit kiertävät eri värit punainen -> keltainen -> vihreä -> punainen jne. Toteutus tehty taskien kautta käyttäen tilakonetta.
 Napille tehty keskeytystoiminto, jolla led tila otetaan talteen, ja uudelleen painamalla tilojen kiertoa jatketaan.
+Napeille 2-4 lisätty päälle/pois toiminto, nappi 5 käynnistää keltaisen välyttämisen.
 */
 
 #include <stdio.h>
@@ -45,6 +46,7 @@ K_THREAD_DEFINE(green_thread,STACKSIZE,green_led_task,NULL,NULL,NULL,PRIORITY,0,
 K_THREAD_DEFINE(blue_thread,STACKSIZE,blue_led_task,NULL,NULL,NULL,PRIORITY,0,0);
 K_THREAD_DEFINE(yellow_thread,STACKSIZE,yellow_led_task,NULL,NULL,NULL,PRIORITY,0,0);
 
+int r_manual, y_manual, g_manual = 0;
 int led_state, led_yellow_state;
 int prev_led_state;
 
@@ -54,6 +56,7 @@ void button_0_handler(const struct device *dev, struct gpio_callback *cb, uint32
 	printk("Pause button pressed\n");
 	if(led_state != 5){
 		prev_led_state = led_state;
+		//led state 5 = pause state
 		led_state = 5;
 		k_thread_suspend(red_thread);
 		k_thread_suspend(green_thread);
@@ -67,54 +70,71 @@ void button_0_handler(const struct device *dev, struct gpio_callback *cb, uint32
 }
 void button_1_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins){
 	// red button
+	if(led_state != 5){
 		prev_led_state = led_state;
 		led_state = 5;
 		k_thread_suspend(red_thread);
 		k_thread_suspend(green_thread);
 		k_thread_suspend(yellow_thread);
-		gpio_pin_set_dt(&red,1);
+	}
+		gpio_pin_set_dt(&red,r_manual);
 		gpio_pin_set_dt(&blue,0);
 		gpio_pin_set_dt(&green,0);
+		r_manual = !r_manual;
 		printk("Red btn on\n");
 }
 void button_2_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins){
 	// yellow button
+	if(led_state != 5){
 		prev_led_state = led_state;
 		led_state = 5;
 		k_thread_suspend(red_thread);
 		k_thread_suspend(green_thread);
 		k_thread_suspend(yellow_thread);
-		gpio_pin_set_dt(&red,1);
-		gpio_pin_set_dt(&green,1);
+	}
+		gpio_pin_set_dt(&red,y_manual);
+		gpio_pin_set_dt(&green,y_manual);
 		gpio_pin_set_dt(&blue,0);
+		y_manual = !y_manual;
 		printk("Yellow btn on\n");
 }
 void button_3_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins){
 	// green button
+	if(led_state != 5){
 		prev_led_state = led_state;
 		led_state = 5;
 		k_thread_suspend(red_thread);
 		k_thread_suspend(green_thread);
 		k_thread_suspend(yellow_thread);
-		gpio_pin_set_dt(&green,1);
+	}
+		gpio_pin_set_dt(&green,g_manual);
 		gpio_pin_set_dt(&red,0);
 		gpio_pin_set_dt(&blue,0);
+		g_manual = !g_manual;
 		printk("Green btn on\n");
 }
 void button_4_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins){
-	// yellow blink button
-		prev_led_state = led_state;
-		//led_state = 5;
-		if(led_yellow_state != 1){
-			led_yellow_state = 1;
-			k_thread_suspend(red_thread);
-			k_thread_suspend(green_thread);
+	//yellow blink
+	if (led_state != 6) {
+		gpio_pin_set_dt(&red, 0);
+		gpio_pin_set_dt(&green, 0);
+		gpio_pin_set_dt(&blue, 0);
 
-		} else {
-			led_yellow_state = 0;
-			k_thread_resume(red_thread);
-			k_thread_resume(green_thread);
-		}	
+		k_thread_suspend(red_thread);
+		k_thread_suspend(green_thread);
+		k_thread_suspend(blue_thread);
+
+		prev_led_state = led_state;
+		led_state = 6; 
+		k_thread_resume(yellow_thread);
+	} else {
+		led_state = prev_led_state;
+		gpio_pin_set_dt(&red, 0);
+		gpio_pin_set_dt(&green, 0);
+		gpio_pin_set_dt(&blue, 0);
+
+		k_thread_suspend(yellow_thread);
+	}
 }
 
 // Main program
@@ -222,20 +242,24 @@ void red_led_task(void *, void *, void*) {
 }
 void yellow_led_task(void *, void *, void*) {
 	while(true){
-	if(led_state == 1 || led_yellow_state == 1){
-		printk("Yellow led thread started\n");
-		gpio_pin_set_dt(&red,1);
-		gpio_pin_set_dt(&green,1);
-		printk("Yellow on\n");
-		k_sleep(K_SECONDS(1));
-		gpio_pin_set_dt(&red,0);
-		gpio_pin_set_dt(&green,0);
-		printk("Yellow off\n");
-		k_sleep(K_SECONDS(1));
-		led_state = 2;
-	}
-	else
-	k_msleep(100);
+		if(led_state == 1 || led_state == 6){
+			printk("Yellow led thread started\n");
+			gpio_pin_set_dt(&red,1);
+			gpio_pin_set_dt(&green,1);
+			printk("Yellow on\n");
+			k_sleep(K_SECONDS(1));
+			gpio_pin_set_dt(&red,0);
+			gpio_pin_set_dt(&green,0);
+			printk("Yellow off\n");
+			k_sleep(K_SECONDS(1));
+
+			if (led_state == 1) {
+				led_state = 2;
+			}
+		}
+		else {
+			k_msleep(100);
+		}
 	}
 }
 void green_led_task(void *, void *, void*) {
