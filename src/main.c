@@ -6,7 +6,8 @@ Napille tehty keskeytystoiminto, jolla led tila otetaan talteen, ja uudelleen pa
 Napeille 2-4 lisätty päälle/pois toiminto, nappi 5 käynnistää keltaisen välyttämisen.
 
 Viikkotehtävä 3, 1p.
-UARTin kautta lähettämällä R,G,Y voi väläyttää LEDiä.
+UARTin kautta lähettämällä R,G,Y voi väläyttää LEDiä, LEDien tilakoneet on vaihdettu toimimaan dispatcherin signaalien mukaan.
+
 */
 
 #include <stdio.h>
@@ -79,6 +80,7 @@ int prev_led_state;
 struct data_t {
 	void *fifo_reserved;
 	char msg[20];
+	char color;
 };
 
 // Button interrupt handler
@@ -353,70 +355,55 @@ void blue_led_task(void *, void *, void*) {
 
 static void uart_task(void *unused1, void *unused2, void *unused3)
 {
-	// Received character from UART
-	char rc=0;
-	// Message from UART
-	char uart_msg[20];
-	memset(uart_msg,0,20);
-	int uart_msg_cnt = 0;
+    char rc = 0;
+    char uart_msg[20];
+    memset(uart_msg, 0, sizeof(uart_msg));
+    int uart_msg_cnt = 0;
 
-	while (true) {
-		// Ask UART if data available
-		if (uart_poll_in(uart_dev,&rc) == 0) {
-			// printk("Received: %c\n",rc);
-			// If character is not newline, add to UART message buffer
-			if (rc != '\r') {
-				uart_msg[uart_msg_cnt] = rc;
-				uart_msg_cnt++;
-			// Character is newline, copy dispatcher data and put to FIFO buffer
-			} else {
-				printk("UART msg: %s\n", uart_msg);
-                
-				struct data_t *buf = k_malloc(sizeof(struct data_t));
-				if (buf == NULL) {
-					return;
-				}
-				// Copy UART message to dispatcher data
-				snprintf(buf->msg, 20, "%s", uart_msg);
-				k_fifo_put(&dispatcher_fifo, buf);
-				printk("fifo data: %s\n",buf->msg);
-
-				// Clear UART receive buffer
-				uart_msg_cnt = 0;
-				memset(uart_msg,0,20);
-
-				// Clear UART message buffer
-				uart_msg_cnt = 0;
-				memset(uart_msg,0,20);
-			}
-		}
-		k_msleep(10);
-	}
-	
+    while (true) {
+        if (uart_poll_in(uart_dev, &rc) == 0) {
+            if (rc != '\r') {
+                if (uart_msg_cnt < sizeof(uart_msg) - 1) {
+                    uart_msg[uart_msg_cnt++] = rc;
+                }
+            } else {
+                // Rivin loppu, käydään merkki kerrallaan
+                for (int i = 0; i < uart_msg_cnt; i++) {
+                    char merkki = uart_msg[i];
+                    if (merkki == 'R' || merkki == 'G' || merkki == 'Y') {
+                        struct data_t *buf = k_malloc(sizeof(struct data_t));
+                        if (!buf) {
+                            printk("Malloc failed!\n");
+                            break;  // Lopeta jos muistinvaraus epäonnistuu
+                        }
+                        buf->color = merkki;
+                        k_fifo_put(&dispatcher_fifo, buf);
+                    }
+                }
+                uart_msg_cnt = 0;
+                memset(uart_msg, 0, sizeof(uart_msg));
+            }
+        }
+        k_msleep(10);
+    }
 }
 
-
-/* Dispatcher task
- */
+// Dispatcher task
 static void dispatcher_task(void *unused1, void *unused2, void *unused3)
 {
 	while (true) {
 		// Receive dispatcher data from uart_task fifo
 		struct data_t *rec_item = k_fifo_get(&dispatcher_fifo, K_FOREVER);
 		char sequence[20];
+		char color = rec_item->color;
 		memcpy(sequence,rec_item->msg,20);
 		k_free(rec_item);
 
-		printk("Dispatcher: %s\n", sequence);
-        // You need to:
-        // Parse color and time from the fifo data
-        // Example
-        char color = sequence[0];
-        //    int time = atoi(sequence+2);
-		//    printk("Data: %c %d\n", color, time);
-        // Send the parsed color information to tasks using fifo
-        // Use release signal to control sequence or k_yield
+		printk("Dispatcher: %s\n", color);
+        // Parse color from the fifo data
+        //char color = sequence[0];
 
+        // Send the parsed color information to tasks using fifo
 		switch (color) {
             case 'R':
                 k_mutex_lock(&red_mutex, K_FOREVER);
