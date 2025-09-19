@@ -5,8 +5,10 @@ LEDit kiertävät eri värit punainen -> keltainen -> vihreä -> punainen jne. T
 Napille tehty keskeytystoiminto, jolla led tila otetaan talteen, ja uudelleen painamalla tilojen kiertoa jatketaan.
 Napeille 2-4 lisätty päälle/pois toiminto, nappi 5 käynnistää keltaisen välyttämisen.
 
-Viikkotehtävä 3, 1p.
-UARTin kautta lähettämällä R,G,Y voi väläyttää LEDiä.
+Viikkotehtävä 3, 2p.
+UARTin kautta lähettämällä R,G,Y voi väläyttää LEDiä, LEDien tilakoneet on vaihdettu toimimaan dispatcherin signaalien mukaan.
+FIFO puskuriin voi syöttää "RGYRGY" merkkijono, jonka mukaan LEDejä väläytetään syötetyssä sekvenssissä.
+Ledinapit keltaiselle, punaiselle ja vihreälle toimivat FIFO-puskurin kautta, lähettäen nappia vastaavan värin signaalin puskuriin, jotka käsitellään dispatcherissä.
 */
 
 #include <stdio.h>
@@ -44,11 +46,13 @@ void red_led_task(void *, void *, void*);
 void green_led_task(void *, void *, void*);
 void blue_led_task(void *, void *, void*);
 void yellow_led_task(void *, void *, void*);
+void yellow_blink_task(void *, void *, void*);
 
 K_THREAD_DEFINE(red_thread,STACKSIZE,red_led_task,NULL,NULL,NULL,PRIORITY,0,0);
 K_THREAD_DEFINE(green_thread,STACKSIZE,green_led_task,NULL,NULL,NULL,PRIORITY,0,0);
 K_THREAD_DEFINE(blue_thread,STACKSIZE,blue_led_task,NULL,NULL,NULL,PRIORITY,0,0);
 K_THREAD_DEFINE(yellow_thread,STACKSIZE,yellow_led_task,NULL,NULL,NULL,PRIORITY,0,0);
+K_THREAD_DEFINE(yellow_blink_thread,STACKSIZE,yellow_blink_task,NULL,NULL,NULL,PRIORITY,0,0);
 
 // UART initialization
 #define UART_DEVICE_NODE DT_CHOSEN(zephyr_shell_uart)
@@ -79,6 +83,7 @@ int prev_led_state;
 struct data_t {
 	void *fifo_reserved;
 	char msg[20];
+	char color;
 };
 
 // Button interrupt handler
@@ -86,85 +91,67 @@ void button_0_handler(const struct device *dev, struct gpio_callback *cb, uint32
 {
 	printk("Pause button pressed\n");
 	if(led_state != 5){
-		prev_led_state = led_state;
+		//prev_led_state = led_state;
 		//led state 5 = pause state
 		led_state = 5;
 		k_thread_suspend(red_thread);
 		k_thread_suspend(green_thread);
 		k_thread_suspend(yellow_thread);
+		k_thread_suspend(yellow_blink_thread);
 	} else{
-		led_state = prev_led_state;
+		led_state = 1;
 		k_thread_resume(red_thread);
 		k_thread_resume(green_thread);
 		k_thread_resume(yellow_thread);
+		k_thread_resume(yellow_blink_thread);
 	}
 }
 void button_1_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins){
 	// red button
-	if(led_state != 5){
-		prev_led_state = led_state;
-		led_state = 5;
-		k_thread_suspend(red_thread);
-		k_thread_suspend(green_thread);
-		k_thread_suspend(yellow_thread);
-	}
-		gpio_pin_set_dt(&red,r_manual);
-		gpio_pin_set_dt(&blue,0);
-		gpio_pin_set_dt(&green,0);
-		r_manual = !r_manual;
-		printk("Red btn on\n");
+	//refactor button to use fifo
+	char merkki = 'R';
+	struct data_t *sendR = k_malloc(sizeof(struct data_t));
+	sendR->color = merkki;
+	k_fifo_put(&dispatcher_fifo, sendR);
 }
 void button_2_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins){
 	// yellow button
-	if(led_state != 5){
-		prev_led_state = led_state;
-		led_state = 5;
-		k_thread_suspend(red_thread);
-		k_thread_suspend(green_thread);
-		k_thread_suspend(yellow_thread);
-	}
-		gpio_pin_set_dt(&red,y_manual);
-		gpio_pin_set_dt(&green,y_manual);
-		gpio_pin_set_dt(&blue,0);
-		y_manual = !y_manual;
-		printk("Yellow btn on\n");
+	char merkki = 'Y';
+	struct data_t *sendY = k_malloc(sizeof(struct data_t));
+	sendY->color = merkki;
+	k_fifo_put(&dispatcher_fifo, sendY);
 }
 void button_3_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins){
 	// green button
-	if(led_state != 5){
-		prev_led_state = led_state;
-		led_state = 5;
-		k_thread_suspend(red_thread);
-		k_thread_suspend(green_thread);
-		k_thread_suspend(yellow_thread);
-	}
-		gpio_pin_set_dt(&green,g_manual);
-		gpio_pin_set_dt(&red,0);
-		gpio_pin_set_dt(&blue,0);
-		g_manual = !g_manual;
-		printk("Green btn on\n");
+	char merkki = 'G';
+	struct data_t *sendG = k_malloc(sizeof(struct data_t));
+	sendG->color = merkki;
+	k_fifo_put(&dispatcher_fifo, sendG);
 }
 void button_4_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins){
 	//yellow blink
-	if (led_state != 6) {
+	if (led_yellow_state == 0) {
 		gpio_pin_set_dt(&red, 0);
 		gpio_pin_set_dt(&green, 0);
 		gpio_pin_set_dt(&blue, 0);
 
 		k_thread_suspend(red_thread);
 		k_thread_suspend(green_thread);
-		k_thread_suspend(blue_thread);
-
-		prev_led_state = led_state;
-		led_state = 6; 
-		k_thread_resume(yellow_thread);
+		k_thread_suspend(yellow_thread);
+		led_yellow_state = 1;
+		k_thread_resume(yellow_blink_thread);
+		
 	} else {
-		led_state = prev_led_state;
+		
 		gpio_pin_set_dt(&red, 0);
 		gpio_pin_set_dt(&green, 0);
 		gpio_pin_set_dt(&blue, 0);
 
-		k_thread_suspend(yellow_thread);
+		k_thread_suspend(yellow_blink_thread);
+		k_thread_resume(red_thread);
+		k_thread_resume(green_thread);
+		k_thread_resume(yellow_thread);
+		led_yellow_state = 0;
 	}
 }
 // UART initialization
@@ -202,6 +189,7 @@ int  init_led() {
 	printk("Led initialized ok\n");
 	led_state = 0;
 	led_yellow_state = 0;
+	k_thread_suspend(yellow_blink_thread);
 	return 0;
 }
 
@@ -272,7 +260,7 @@ void red_led_task(void *, void *, void*) {
 		k_mutex_lock(&red_mutex, K_FOREVER);
         k_condvar_wait(&red_cv, &red_mutex, K_FOREVER);
         k_mutex_unlock(&red_mutex);	
-	//if(led_state == 0){
+
 		printk("Red led thread started\n");
 		gpio_pin_set_dt(&red,1);
 		printk("Red on\n");
@@ -282,18 +270,14 @@ void red_led_task(void *, void *, void*) {
 		k_sleep(K_SECONDS(1));	
 		//release signaali dispatcherille
 		k_sem_give(&release_sem);
-		//led_state = 1;
-	//}
-	//else
-	k_msleep(100);
 	}	
 }
 void yellow_led_task(void *, void *, void*) {
 	while(true){
 		k_mutex_lock(&yellow_mutex, K_FOREVER);
-        k_condvar_wait(&yellow_cv, &yellow_mutex, K_FOREVER);
-        k_mutex_unlock(&yellow_mutex);	
-		//if(led_state == 1 || led_state == 6){
+		k_condvar_wait(&yellow_cv, &yellow_mutex, K_FOREVER);
+		k_mutex_unlock(&yellow_mutex);	
+
 		printk("Yellow led thread started\n");
 		gpio_pin_set_dt(&red,1);
 		gpio_pin_set_dt(&green,1);
@@ -305,21 +289,30 @@ void yellow_led_task(void *, void *, void*) {
 		k_sleep(K_SECONDS(1));
 		
 		k_sem_give(&release_sem);
-			/*if (led_state == 1) {
-				led_state = 2;
-			}
-		}
-		else {
-			k_msleep(100);
-		} */
 	}
+}
+// Yellow blinking LED task
+void yellow_blink_task(void *, void *, void*) {
+	while(true){
+		if(led_yellow_state == 1){
+		printk("Yellow blink thread started\n");
+		gpio_pin_set_dt(&red,1);
+		gpio_pin_set_dt(&green,1);
+		printk("Yellow on\n");
+		k_sleep(K_SECONDS(1));
+		gpio_pin_set_dt(&red,0);
+		gpio_pin_set_dt(&green,0);
+		printk("Yellow off\n");
+		k_sleep(K_SECONDS(1));
+	}
+}
 }
 void green_led_task(void *, void *, void*) {
 	while(true){
 		k_mutex_lock(&green_mutex, K_FOREVER);
         k_condvar_wait(&green_cv, &green_mutex, K_FOREVER);
         k_mutex_unlock(&green_mutex);	
-	//if(led_state == 2){
+
 		printk("Green led thread started\n");
 		gpio_pin_set_dt(&green,1);
 		printk("Green on\n");
@@ -329,10 +322,6 @@ void green_led_task(void *, void *, void*) {
 		k_sleep(K_SECONDS(1));
 
 		k_sem_give(&release_sem);
-	/*	led_state = 0;
-	}
-	else
-	k_msleep(100); */
 	}	
 }
 void blue_led_task(void *, void *, void*) {
@@ -353,70 +342,55 @@ void blue_led_task(void *, void *, void*) {
 
 static void uart_task(void *unused1, void *unused2, void *unused3)
 {
-	// Received character from UART
-	char rc=0;
-	// Message from UART
-	char uart_msg[20];
-	memset(uart_msg,0,20);
-	int uart_msg_cnt = 0;
+    char rc = 0;
+    char uart_msg[20];
+    memset(uart_msg, 0, sizeof(uart_msg));
+    int uart_msg_cnt = 0;
 
-	while (true) {
-		// Ask UART if data available
-		if (uart_poll_in(uart_dev,&rc) == 0) {
-			// printk("Received: %c\n",rc);
-			// If character is not newline, add to UART message buffer
-			if (rc != '\r') {
-				uart_msg[uart_msg_cnt] = rc;
-				uart_msg_cnt++;
-			// Character is newline, copy dispatcher data and put to FIFO buffer
-			} else {
-				printk("UART msg: %s\n", uart_msg);
-                
-				struct data_t *buf = k_malloc(sizeof(struct data_t));
-				if (buf == NULL) {
-					return;
-				}
-				// Copy UART message to dispatcher data
-				snprintf(buf->msg, 20, "%s", uart_msg);
-				k_fifo_put(&dispatcher_fifo, buf);
-				printk("fifo data: %s\n",buf->msg);
-
-				// Clear UART receive buffer
-				uart_msg_cnt = 0;
-				memset(uart_msg,0,20);
-
-				// Clear UART message buffer
-				uart_msg_cnt = 0;
-				memset(uart_msg,0,20);
-			}
-		}
-		k_msleep(10);
-	}
-	
+    while (true) {
+        if (uart_poll_in(uart_dev, &rc) == 0) {
+            if (rc != '\r') {
+                if (uart_msg_cnt < sizeof(uart_msg) - 1) {
+                    uart_msg[uart_msg_cnt++] = rc;
+                }
+            } else {
+                // Go through the whole message and send the letters to fifo
+                for (int i = 0; i < uart_msg_cnt; i++) {
+                    char merkki = uart_msg[i];
+                    if (merkki == 'R' || merkki == 'G' || merkki == 'Y') {
+                        struct data_t *buf = k_malloc(sizeof(struct data_t));
+                        if (!buf) {
+                            printk("Malloc failed!\n");
+                            break;  // Memory allocation failed
+                        }
+                        buf->color = merkki;
+                        k_fifo_put(&dispatcher_fifo, buf);
+                    }
+                }
+                uart_msg_cnt = 0;
+                memset(uart_msg, 0, sizeof(uart_msg));
+            }
+        }
+        k_msleep(10);
+    }
 }
 
-
-/* Dispatcher task
- */
+// Dispatcher task
 static void dispatcher_task(void *unused1, void *unused2, void *unused3)
 {
 	while (true) {
 		// Receive dispatcher data from uart_task fifo
 		struct data_t *rec_item = k_fifo_get(&dispatcher_fifo, K_FOREVER);
 		char sequence[20];
+		char color = rec_item->color;
 		memcpy(sequence,rec_item->msg,20);
 		k_free(rec_item);
 
-		printk("Dispatcher: %s\n", sequence);
-        // You need to:
-        // Parse color and time from the fifo data
-        // Example
-        char color = sequence[0];
-        //    int time = atoi(sequence+2);
-		//    printk("Data: %c %d\n", color, time);
-        // Send the parsed color information to tasks using fifo
-        // Use release signal to control sequence or k_yield
+		printk("Dispatcher: %s\n", color);
+        // Parse color from the fifo data
+        //char color = sequence[0];
 
+        // Send the parsed color information to tasks using fifo
 		switch (color) {
             case 'R':
                 k_mutex_lock(&red_mutex, K_FOREVER);
