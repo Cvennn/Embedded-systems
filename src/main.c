@@ -5,9 +5,10 @@ LEDit kiertävät eri värit punainen -> keltainen -> vihreä -> punainen jne. T
 Napille tehty keskeytystoiminto, jolla led tila otetaan talteen, ja uudelleen painamalla tilojen kiertoa jatketaan.
 Napeille 2-4 lisätty päälle/pois toiminto, nappi 5 käynnistää keltaisen välyttämisen.
 
-Viikkotehtävä 3, 1p.
+Viikkotehtävä 3, 2p.
 UARTin kautta lähettämällä R,G,Y voi väläyttää LEDiä, LEDien tilakoneet on vaihdettu toimimaan dispatcherin signaalien mukaan.
 FIFO puskuriin voi syöttää "RGYRGY" merkkijono, jonka mukaan LEDejä väläytetään syötetyssä sekvenssissä.
+Ledinapit keltaiselle, punaiselle ja vihreälle toimivat FIFO-puskurin kautta, lähettäen nappia vastaavan värin signaalin puskuriin, jotka käsitellään dispatcherissä.
 */
 
 #include <stdio.h>
