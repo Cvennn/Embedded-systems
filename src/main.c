@@ -9,6 +9,10 @@ Viikkotehtävä 3, 2p.
 UARTin kautta lähettämällä R,G,Y voi väläyttää LEDiä, LEDien tilakoneet on vaihdettu toimimaan dispatcherin signaalien mukaan.
 FIFO puskuriin voi syöttää "RGYRGY" merkkijono, jonka mukaan LEDejä väläytetään syötetyssä sekvenssissä.
 Ledinapit keltaiselle, punaiselle ja vihreälle toimivat FIFO-puskurin kautta, lähettäen nappia vastaavan värin signaalin puskuriin, jotka käsitellään dispatcherissä.
+
+Viikkotehtävä 4, 1p.
+Jokaiselle valotaskille ajan mittaaminen mikrosekuntien tarkkuudella. Kuvat timing tuloksista githubissa.
+Kuvat: kaikki printit päällä, LED taskien printit pois päältä ja dispatcherin sekä LED taskien printit pois päältä.
 */
 
 #include <stdio.h>
@@ -19,6 +23,7 @@ Ledinapit keltaiselle, punaiselle ja vihreälle toimivat FIFO-puskurin kautta, l
 #include <zephyr/sys/printk.h>
 #include <inttypes.h>
 #include <zephyr/drivers/uart.h>
+#include <zephyr/timing/timing.h>
 
 // configure buttons
 #define BUTTON_0 DT_ALIAS(sw0)
@@ -61,11 +66,11 @@ static const struct device *const uart_dev = DEVICE_DT_GET(UART_DEVICE_NODE);
 // Create dispatcher FIFO buffer
 K_FIFO_DEFINE(dispatcher_fifo);
 
-// semaphori ohjausta varten
+// semaphori threadien ohjausta varten
 struct k_sem release_sem;
 K_SEM_DEFINE(release_sem, 0, 1); // Init value = 0
 
-// Condition variablet ja mutexit joka valolle
+// Condition variablet ja mutexit joka LEDille
 K_MUTEX_DEFINE(red_mutex);
 K_CONDVAR_DEFINE(red_cv);
 
@@ -244,6 +249,7 @@ int init_button() {
 // Main program
 int main(void)
 {
+	timing_init();
 	init_button();
 	init_led();
 	int ret = init_uart();
@@ -257,38 +263,60 @@ int main(void)
 // Tasks to handle leds
 void red_led_task(void *, void *, void*) {
 	while(true){
+		//Start timing
+		timing_start();
+		timing_t start_time = timing_counter_get();
+
 		k_mutex_lock(&red_mutex, K_FOREVER);
         k_condvar_wait(&red_cv, &red_mutex, K_FOREVER);
         k_mutex_unlock(&red_mutex);	
 
-		printk("Red led thread started\n");
+		//printk("Red led thread started\n");
 		gpio_pin_set_dt(&red,1);
-		printk("Red on\n");
+		//printk("Red on\n");
 		k_sleep(K_SECONDS(1));
 		gpio_pin_set_dt(&red,0);
-		printk("Red off\n");
+		//printk("Red off\n");
 		k_sleep(K_SECONDS(1));	
 		//release signaali dispatcherille
 		k_sem_give(&release_sem);
+		// Stop timing and print results
+		timing_t end_time = timing_counter_get();
+		timing_stop();
+		// Take cycles between start and end times and convert them into nanoseconds
+		uint64_t time_ns = timing_cycles_to_ns(timing_cycles_get(&start_time, &end_time));
+		uint64_t time_mikros = time_ns / 1000;
+		printk("Red task time in mikroseconds: %lld\n", time_mikros);
 	}	
 }
 void yellow_led_task(void *, void *, void*) {
 	while(true){
+		timing_start();
+		timing_t start_time = timing_counter_get();
+
 		k_mutex_lock(&yellow_mutex, K_FOREVER);
 		k_condvar_wait(&yellow_cv, &yellow_mutex, K_FOREVER);
 		k_mutex_unlock(&yellow_mutex);	
 
-		printk("Yellow led thread started\n");
+		//printk("Yellow led thread started\n");
 		gpio_pin_set_dt(&red,1);
 		gpio_pin_set_dt(&green,1);
-		printk("Yellow on\n");
+		//printk("Yellow on\n");
 		k_sleep(K_SECONDS(1));
 		gpio_pin_set_dt(&red,0);
 		gpio_pin_set_dt(&green,0);
-		printk("Yellow off\n");
+		//printk("Yellow off\n");
 		k_sleep(K_SECONDS(1));
 		
-		k_sem_give(&release_sem);
+		k_sem_give(&release_sem);	
+		
+		timing_t end_time = timing_counter_get();
+		timing_stop();
+		
+		uint64_t time_ns = timing_cycles_to_ns(timing_cycles_get(&start_time, &end_time));
+		uint64_t time_mikros = time_ns / 1000;
+		printk("Yellow task time in mikroseconds: %lld\n", time_mikros);
+
 	}
 }
 // Yellow blinking LED task
@@ -309,19 +337,30 @@ void yellow_blink_task(void *, void *, void*) {
 }
 void green_led_task(void *, void *, void*) {
 	while(true){
+		timing_start();
+		timing_t start_time = timing_counter_get();
+
 		k_mutex_lock(&green_mutex, K_FOREVER);
         k_condvar_wait(&green_cv, &green_mutex, K_FOREVER);
         k_mutex_unlock(&green_mutex);	
 
-		printk("Green led thread started\n");
+		//printk("Green led thread started\n");
 		gpio_pin_set_dt(&green,1);
-		printk("Green on\n");
+		//printk("Green on\n");
 		k_sleep(K_SECONDS(1));
 		gpio_pin_set_dt(&green,0);
-		printk("Green off\n");
+		//printk("Green off\n");
 		k_sleep(K_SECONDS(1));
 
 		k_sem_give(&release_sem);
+
+		timing_t end_time = timing_counter_get();
+		timing_stop();
+		
+		uint64_t time_ns = timing_cycles_to_ns(timing_cycles_get(&start_time, &end_time));
+		uint64_t time_mikros = time_ns / 1000;
+		printk("Green task time in mikroseconds: %lld\n", time_mikros);
+
 	}	
 }
 void blue_led_task(void *, void *, void*) {
@@ -386,7 +425,7 @@ static void dispatcher_task(void *unused1, void *unused2, void *unused3)
 		memcpy(sequence,rec_item->msg,20);
 		k_free(rec_item);
 
-		printk("Dispatcher: %s\n", color);
+		//printk("Dispatcher: %c\n", color);
         // Parse color from the fifo data
         //char color = sequence[0];
 
@@ -412,7 +451,7 @@ static void dispatcher_task(void *unused1, void *unused2, void *unused3)
                 continue;
         }
 		k_sem_take(&release_sem, K_FOREVER);
-        printk("Dispatcher: LED task completed\n");
+        //printk("Dispatcher: LED task completed\n");
 	}
 }
 K_THREAD_DEFINE(dis_thread,STACKSIZE,dispatcher_task,NULL,NULL,NULL,PRIORITY,0,0);
