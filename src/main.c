@@ -10,8 +10,9 @@ UARTin kautta lähettämällä R,G,Y voi väläyttää LEDiä, LEDien tilakoneet
 FIFO puskuriin voi syöttää "RGYRGY" merkkijono, jonka mukaan LEDejä väläytetään syötetyssä sekvenssissä.
 Ledinapit keltaiselle, punaiselle ja vihreälle toimivat FIFO-puskurin kautta, lähettäen nappia vastaavan värin signaalin puskuriin, jotka käsitellään dispatcherissä.
 
-Viikkotehtävä 4, Xp.
-Jokaiselle valotaskille ajan mittaaminen mikrosekuntien tarkkuudella
+Viikkotehtävä 4, 1p.
+Jokaiselle valotaskille ajan mittaaminen mikrosekuntien tarkkuudella. Kuvat timing tuloksista githubissa.
+Kuvat: kaikki printit päällä, LED taskien printit pois päältä ja dispatcherin sekä LED taskien printit pois päältä.
 */
 
 #include <stdio.h>
@@ -270,12 +271,12 @@ void red_led_task(void *, void *, void*) {
         k_condvar_wait(&red_cv, &red_mutex, K_FOREVER);
         k_mutex_unlock(&red_mutex);	
 
-		printk("Red led thread started\n");
+		//printk("Red led thread started\n");
 		gpio_pin_set_dt(&red,1);
-		printk("Red on\n");
+		//printk("Red on\n");
 		k_sleep(K_SECONDS(1));
 		gpio_pin_set_dt(&red,0);
-		printk("Red off\n");
+		//printk("Red off\n");
 		k_sleep(K_SECONDS(1));	
 		//release signaali dispatcherille
 		k_sem_give(&release_sem);
@@ -297,14 +298,14 @@ void yellow_led_task(void *, void *, void*) {
 		k_condvar_wait(&yellow_cv, &yellow_mutex, K_FOREVER);
 		k_mutex_unlock(&yellow_mutex);	
 
-		printk("Yellow led thread started\n");
+		//printk("Yellow led thread started\n");
 		gpio_pin_set_dt(&red,1);
 		gpio_pin_set_dt(&green,1);
-		printk("Yellow on\n");
+		//printk("Yellow on\n");
 		k_sleep(K_SECONDS(1));
 		gpio_pin_set_dt(&red,0);
 		gpio_pin_set_dt(&green,0);
-		printk("Yellow off\n");
+		//printk("Yellow off\n");
 		k_sleep(K_SECONDS(1));
 		
 		k_sem_give(&release_sem);	
@@ -343,12 +344,12 @@ void green_led_task(void *, void *, void*) {
         k_condvar_wait(&green_cv, &green_mutex, K_FOREVER);
         k_mutex_unlock(&green_mutex);	
 
-		printk("Green led thread started\n");
+		//printk("Green led thread started\n");
 		gpio_pin_set_dt(&green,1);
-		printk("Green on\n");
+		//printk("Green on\n");
 		k_sleep(K_SECONDS(1));
 		gpio_pin_set_dt(&green,0);
-		printk("Green off\n");
+		//printk("Green off\n");
 		k_sleep(K_SECONDS(1));
 
 		k_sem_give(&release_sem);
@@ -424,7 +425,7 @@ static void dispatcher_task(void *unused1, void *unused2, void *unused3)
 		memcpy(sequence,rec_item->msg,20);
 		k_free(rec_item);
 
-		printk("Dispatcher: %c\n", color);
+		//printk("Dispatcher: %c\n", color);
         // Parse color from the fifo data
         //char color = sequence[0];
 
@@ -450,7 +451,7 @@ static void dispatcher_task(void *unused1, void *unused2, void *unused3)
                 continue;
         }
 		k_sem_take(&release_sem, K_FOREVER);
-        printk("Dispatcher: LED task completed\n");
+        //printk("Dispatcher: LED task completed\n");
 	}
 }
 K_THREAD_DEFINE(dis_thread,STACKSIZE,dispatcher_task,NULL,NULL,NULL,PRIORITY,0,0);
