@@ -65,6 +65,7 @@ static const struct device *const uart_dev = DEVICE_DT_GET(UART_DEVICE_NODE);
 
 // Create dispatcher FIFO buffer
 K_FIFO_DEFINE(dispatcher_fifo);
+K_FIFO_DEFINE(debug_fifo);
 
 // semaphori threadien ohjausta varten
 struct k_sem release_sem;
@@ -89,6 +90,12 @@ struct data_t {
 	void *fifo_reserved;
 	char msg[20];
 	char color;
+};
+struct data_d {
+	void *fifo_reserved;
+	char msg[40];
+	uint64_t number;
+
 };
 
 // Button interrupt handler
@@ -286,7 +293,13 @@ void red_led_task(void *, void *, void*) {
 		// Take cycles between start and end times and convert them into nanoseconds
 		uint64_t time_ns = timing_cycles_to_ns(timing_cycles_get(&start_time, &end_time));
 		uint64_t time_mikros = time_ns / 1000;
-		printk("Red task time in mikroseconds: %lld\n", time_mikros);
+
+		struct data_d *buf = k_malloc(sizeof(struct data_t));
+		strncpy(buf->msg, "Red task time in microseconds: ", sizeof(buf->msg) - 1);
+		buf->msg[sizeof(buf->msg) - 1] = '\0'; // ensure null termination
+		buf->number = time_mikros;
+		k_fifo_put(&dispatcher_fifo, buf);
+		//printk("Red task time in mikroseconds: %lld\n", time_mikros);
 	}	
 }
 void yellow_led_task(void *, void *, void*) {
@@ -425,9 +438,8 @@ static void dispatcher_task(void *unused1, void *unused2, void *unused3)
 		memcpy(sequence,rec_item->msg,20);
 		k_free(rec_item);
 
+		//Send dispatcher debug info to a debug fifo
 		//printk("Dispatcher: %c\n", color);
-        // Parse color from the fifo data
-        //char color = sequence[0];
 
         // Send the parsed color information to tasks using fifo
 		switch (color) {
@@ -454,5 +466,17 @@ static void dispatcher_task(void *unused1, void *unused2, void *unused3)
         //printk("Dispatcher: LED task completed\n");
 	}
 }
+
+static void debug_task(void *unused1, void *unused2, void *unused3)
+{
+	while (true) {
+		struct data_d *rec_item = k_fifo_get(&debug_fifo, K_FOREVER);
+		char message[40];
+		uint64_t num = rec_item->number;
+		memcpy(message,rec_item->msg,40);
+		k_free(rec_item);
+	}
+}
 K_THREAD_DEFINE(dis_thread,STACKSIZE,dispatcher_task,NULL,NULL,NULL,PRIORITY,0,0);
+K_THREAD_DEFINE(debug_thread,STACKSIZE,debug_task,NULL,NULL,NULL,10,0,0);
 K_THREAD_DEFINE(uart_thread,STACKSIZE,uart_task,NULL,NULL,NULL,PRIORITY,0,0);
