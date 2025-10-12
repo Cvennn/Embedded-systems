@@ -16,6 +16,11 @@ Viikkotehtävä 4, 2p.
 Jokaiselle valotaskille ajan mittaaminen mikrosekuntien tarkkuudella. Kuvat timing tuloksista githubissa.
 Dispatcherin ajoitukset mitattu.
 Kuvat: kaikki printit päällä, LED taskien printit pois päältä ja dispatcherin sekä LED taskien printit pois päältä.
+
+Viikkotehtävä 5, 1p.
+gtest kansiossa yksikkötestit time_parse funktiolle, Gtest_results.png kuva tuloksista. Ajastinkeskeytys toiminnallisuus lisätty,
+joka asettaa punaisen LEDin päälle tietyn ajan esim "000008" = punainen LED 8 sekuntia.
+
 */
 
 #include <stdio.h>
@@ -99,6 +104,8 @@ int green_duration = 1;
 int yellow_duration = 1;
 
 int time_parse(char *time);
+struct k_timer timer;
+void timer_handler(struct k_timer *timer_id);
 
 // FIFO dispatcher data type
 struct data_t {
@@ -472,10 +479,28 @@ static void uart_task(void *unused1, void *unused2, void *unused3)
                 uart_msg[uart_msg_cnt] = '\0';
                 
                 // Parse commands
+				if (uart_msg[0] >= '0' && uart_msg[0] <= '9') {
+						int time = time_parse(uart_msg);
+						if (time >= 0) {
+							printk("Parsed time: %d seconds\n", time);
+							// Time parse returns a valid time, send red command to fifo and start timer
+							struct data_t *sendR = k_malloc(sizeof(struct data_t));
+							sendR->color = 'R';
+							sendR->duration = time;
+							k_fifo_put(&dispatcher_fifo, sendR);
+							k_timer_init(&timer, timer_handler, NULL);
+							k_timer_start(&timer, K_SECONDS(time), K_NO_WAIT); // start delay is returned time.
+
+						} else {
+							printk("Time parse error: %d\n", time);
+						}
+					}
                 for (int i = 0; i < uart_msg_cnt; i++) {
                     char merkki = uart_msg[i];
-                    
-                    // Check for color character
+                    //UARTista tuleva aikamerkkijono tarkistetaan ohjelmassa time_parse, joka palauttaa ajan jonka päästä ajastinkeskeytys tapahtuu.
+                    // if message is a time command, e.g "000005" for 5 seconds send to time_parse and init timer interrupt
+					
+					// Check for color character
                     if (merkki == 'R' || merkki == 'G' || merkki == 'Y') {
                         char color = merkki;
                         int duration = 1;  // Default duration
@@ -576,6 +601,14 @@ static void debug_task(void *unused1, void *unused2, void *unused3)
 		memcpy(message,rec_item->msg,40);
 		k_free(rec_item);
 	}
+}
+
+void timer_handler(struct k_timer *timer_id) {
+
+	// timer interrupt handler control for red LED
+	k_mutex_lock(&red_mutex, K_FOREVER);
+	k_condvar_signal(&red_cv);
+	k_mutex_unlock(&red_mutex);
 }
 K_THREAD_DEFINE(dis_thread,STACKSIZE,dispatcher_task,NULL,NULL,NULL,PRIORITY,0,0);
 K_THREAD_DEFINE(debug_thread,STACKSIZE,debug_task,NULL,NULL,NULL,10,0,0);
