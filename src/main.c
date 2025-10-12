@@ -5,17 +5,22 @@ LEDit kiertävät eri värit punainen -> keltainen -> vihreä -> punainen jne. T
 Napille tehty keskeytystoiminto, jolla led tila otetaan talteen, ja uudelleen painamalla tilojen kiertoa jatketaan.
 Napeille 2-4 lisätty päälle/pois toiminto, nappi 5 käynnistää keltaisen välyttämisen.
 
-Viikkotehtävä 3, 2p.
+Viikkotehtävä 3, 3p.
 UARTin kautta lähettämällä R,G,Y voi väläyttää LEDiä, LEDien tilakoneet on vaihdettu toimimaan dispatcherin signaalien mukaan.
 FIFO puskuriin voi syöttää "RGYRGY" merkkijono, jonka mukaan LEDejä väläytetään syötetyssä sekvenssissä.
 Ledinapit keltaiselle, punaiselle ja vihreälle toimivat FIFO-puskurin kautta, lähettäen nappia vastaavan värin signaalin puskuriin, jotka käsitellään dispatcherissä.
++ UARTin kautta pystyy ajastamaan LEDin esim. R,3\r asettaa punaisen LEDin 3 sekunniksi päälle tai R,3\rY,3\r asettaa punaisen päälle 3 sekunniksi
+ja sen jälkeen keltaisen LEDin päälle 3 sekunniksi.
 
-Viikkotehtävä 4, 1p.
+Viikkotehtävä 4, 2p.
 Jokaiselle valotaskille ajan mittaaminen mikrosekuntien tarkkuudella. Kuvat timing tuloksista githubissa.
+Dispatcherin ajoitukset mitattu.
 Kuvat: kaikki printit päällä, LED taskien printit pois päältä ja dispatcherin sekä LED taskien printit pois päältä.
 */
 
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
@@ -31,6 +36,11 @@ Kuvat: kaikki printit päällä, LED taskien printit pois päältä ja dispatche
 #define BUTTON_2 DT_ALIAS(sw2)
 #define BUTTON_3 DT_ALIAS(sw3)
 #define BUTTON_4 DT_ALIAS(sw4)
+
+// Parser error codes
+#define TIME_LEN_ERROR      -1
+#define TIME_ARRAY_ERROR    -2
+#define TIME_VALUE_ERROR    -3
 
 // Led and button pin configurations
 static const struct gpio_dt_spec red = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
@@ -84,12 +94,18 @@ K_CONDVAR_DEFINE(yellow_cv);
 int r_manual, y_manual, g_manual = 0;
 int led_state, led_yellow_state;
 int prev_led_state;
+int red_duration = 1;
+int green_duration = 1; 
+int yellow_duration = 1;
+
+int time_parse(char *time);
 
 // FIFO dispatcher data type
 struct data_t {
 	void *fifo_reserved;
 	char msg[20];
 	char color;
+	int duration;
 };
 struct data_d {
 	void *fifo_reserved;
@@ -124,6 +140,7 @@ void button_1_handler(const struct device *dev, struct gpio_callback *cb, uint32
 	char merkki = 'R';
 	struct data_t *sendR = k_malloc(sizeof(struct data_t));
 	sendR->color = merkki;
+	sendR->duration = red_duration;
 	k_fifo_put(&dispatcher_fifo, sendR);
 }
 void button_2_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins){
@@ -131,6 +148,7 @@ void button_2_handler(const struct device *dev, struct gpio_callback *cb, uint32
 	char merkki = 'Y';
 	struct data_t *sendY = k_malloc(sizeof(struct data_t));
 	sendY->color = merkki;
+	sendY->duration = yellow_duration;
 	k_fifo_put(&dispatcher_fifo, sendY);
 }
 void button_3_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins){
@@ -138,6 +156,7 @@ void button_3_handler(const struct device *dev, struct gpio_callback *cb, uint32
 	char merkki = 'G';
 	struct data_t *sendG = k_malloc(sizeof(struct data_t));
 	sendG->color = merkki;
+	sendG->duration = green_duration;
 	k_fifo_put(&dispatcher_fifo, sendG);
 }
 void button_4_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins){
@@ -251,7 +270,44 @@ int init_button() {
 	
 	return 0;
 }
+// Time parser function
+int time_parse(char *time) {
 
+	// how many seconds, default returns error
+	int seconds = TIME_LEN_ERROR;
+
+	// Check that string is not null
+	if(time == NULL) {
+		return TIME_ARRAY_ERROR;
+	}
+	// Parse values from time string
+	// For example: 124033 -> 12hour 40min 33sec
+    int values[3];
+    char hour[3] = {0}, min[3] = {0}, sec[3] = {0};
+    strncpy(hour, time, 2);
+    strncpy(min, time+2, 2);
+    strncpy(sec, time+4, 2);
+    values[0] = atoi(hour); 	// values[0] hour
+    values[1] = atoi(min);		// values[1] minute
+    values[2] = atoi(sec);		// values[2] second
+
+	// Add boundary check time values: below zero or above limit not allowed
+	// limits are 59 for minutes, 23 for hours, etc
+	if (values[0] < 0 || values[0] > 23 || values[1] < 0 || values[1] > 59 || values[2] < 0 || values[2] > 59)
+	{
+		return TIME_VALUE_ERROR;
+	}
+
+	// String lenght check
+	if (strlen(time) != 6) {
+		return TIME_LEN_ERROR;
+	}
+
+	// Calculate return value from the parsed minutes and seconds
+	seconds = values[0] * 3600 + values[1] * 60 + values[2];
+	
+	return seconds;
+}
 
 // Main program
 int main(void)
@@ -276,12 +332,14 @@ void red_led_task(void *, void *, void*) {
 
 		k_mutex_lock(&red_mutex, K_FOREVER);
         k_condvar_wait(&red_cv, &red_mutex, K_FOREVER);
+
+		int duration = red_duration;
         k_mutex_unlock(&red_mutex);	
 
 		//printk("Red led thread started\n");
 		gpio_pin_set_dt(&red,1);
 		//printk("Red on\n");
-		k_sleep(K_SECONDS(1));
+		k_sleep(K_SECONDS(duration));
 		gpio_pin_set_dt(&red,0);
 		//printk("Red off\n");
 		k_sleep(K_SECONDS(1));	
@@ -309,13 +367,15 @@ void yellow_led_task(void *, void *, void*) {
 
 		k_mutex_lock(&yellow_mutex, K_FOREVER);
 		k_condvar_wait(&yellow_cv, &yellow_mutex, K_FOREVER);
+
+		int duration = yellow_duration;
 		k_mutex_unlock(&yellow_mutex);	
 
 		//printk("Yellow led thread started\n");
 		gpio_pin_set_dt(&red,1);
 		gpio_pin_set_dt(&green,1);
 		//printk("Yellow on\n");
-		k_sleep(K_SECONDS(1));
+		k_sleep(K_SECONDS(duration));
 		gpio_pin_set_dt(&red,0);
 		gpio_pin_set_dt(&green,0);
 		//printk("Yellow off\n");
@@ -355,12 +415,13 @@ void green_led_task(void *, void *, void*) {
 
 		k_mutex_lock(&green_mutex, K_FOREVER);
         k_condvar_wait(&green_cv, &green_mutex, K_FOREVER);
+		int duration = green_duration;
         k_mutex_unlock(&green_mutex);	
 
 		//printk("Green led thread started\n");
 		gpio_pin_set_dt(&green,1);
 		//printk("Green on\n");
-		k_sleep(K_SECONDS(1));
+		k_sleep(K_SECONDS(duration));
 		gpio_pin_set_dt(&green,0);
 		//printk("Green off\n");
 		k_sleep(K_SECONDS(1));
@@ -392,6 +453,7 @@ void blue_led_task(void *, void *, void*) {
 	}
 }
 
+// Refactor UART to read full message and parse from that
 static void uart_task(void *unused1, void *unused2, void *unused3)
 {
     char rc = 0;
@@ -406,19 +468,53 @@ static void uart_task(void *unused1, void *unused2, void *unused3)
                     uart_msg[uart_msg_cnt++] = rc;
                 }
             } else {
-                // Go through the whole message and send the letters to fifo
+                // Process complete message
+                uart_msg[uart_msg_cnt] = '\0';
+                
+                // Parse commands
                 for (int i = 0; i < uart_msg_cnt; i++) {
                     char merkki = uart_msg[i];
+                    
+                    // Check for color character
                     if (merkki == 'R' || merkki == 'G' || merkki == 'Y') {
-                        struct data_t *buf = k_malloc(sizeof(struct data_t));
-                        if (!buf) {
-                            printk("Malloc failed!\n");
-                            break;  // Memory allocation failed
+                        char color = merkki;
+                        int duration = 1;  // Default duration
+                        
+                        // Look ahead for comma and duration
+                        if (i + 2 < uart_msg_cnt && uart_msg[i + 1] == ',') {
+                            // Parse duration (could be 1 or 2 digits)
+                            char duration_str[3] = {0};
+                            int duration_len = 0;
+                            
+                            // Extract digits after comma
+                            for (int j = i + 2; j < uart_msg_cnt && duration_len < 2; j++) {
+                                if (uart_msg[j] >= '0' && uart_msg[j] <= '9') {
+                                    duration_str[duration_len++] = uart_msg[j];
+                                } else {
+                                    break;  // Stop at non-digit
+                                }
+                            }
+                            
+                            if (duration_len > 0) {
+                                duration = atoi(duration_str);
+                                if (duration <= 0) duration = 1;
+                                
+                                // Skip the parsed characters to next command
+                                i += 1 + duration_len; 
+                            }
                         }
-                        buf->color = merkki;
-                        k_fifo_put(&dispatcher_fifo, buf);
+                        
+                        // send command to fifo
+                        struct data_t *buf = k_malloc(sizeof(struct data_t));
+                        if (buf) {
+                            buf->color = color;
+                            buf->duration = duration;
+                            k_fifo_put(&dispatcher_fifo, buf);
+                            printk("Queued: %c for %d seconds\n", color, duration);
+                        }
                     }
                 }
+                
                 uart_msg_cnt = 0;
                 memset(uart_msg, 0, sizeof(uart_msg));
             }
@@ -435,6 +531,7 @@ static void dispatcher_task(void *unused1, void *unused2, void *unused3)
 		struct data_t *rec_item = k_fifo_get(&dispatcher_fifo, K_FOREVER);
 		char sequence[20];
 		char color = rec_item->color;
+		int duration = rec_item->duration;
 		memcpy(sequence,rec_item->msg,20);
 		k_free(rec_item);
 
@@ -445,16 +542,19 @@ static void dispatcher_task(void *unused1, void *unused2, void *unused3)
 		switch (color) {
             case 'R':
                 k_mutex_lock(&red_mutex, K_FOREVER);
+				red_duration = duration;
                 k_condvar_signal(&red_cv);
                 k_mutex_unlock(&red_mutex);
                 break;
             case 'G':
                 k_mutex_lock(&green_mutex, K_FOREVER);
+				green_duration = duration;
                 k_condvar_signal(&green_cv);
                 k_mutex_unlock(&green_mutex);
                 break;
             case 'Y':
                 k_mutex_lock(&yellow_mutex, K_FOREVER);
+				yellow_duration = duration;
                 k_condvar_signal(&yellow_cv);
                 k_mutex_unlock(&yellow_mutex);
                 break;
