@@ -21,6 +21,8 @@ Viikkotehtävä 5, 1p.
 gtest kansiossa yksikkötestit time_parse funktiolle, Gtest_results.png kuva tuloksista. Ajastinkeskeytys toiminnallisuus lisätty,
 joka asettaa punaisen LEDin päälle tietyn ajan esim "000008" = punainen LED 8 sekuntia.
 
+Viikkotehtävä 6 ,1p.
+Robotframework aikamerkkijono robotilla
 */
 
 #include <stdio.h>
@@ -147,7 +149,7 @@ void button_1_handler(const struct device *dev, struct gpio_callback *cb, uint32
 	char merkki = 'R';
 	struct data_t *sendR = k_malloc(sizeof(struct data_t));
 	sendR->color = merkki;
-	sendR->duration = red_duration;
+	sendR->duration = 1;
 	k_fifo_put(&dispatcher_fifo, sendR);
 }
 void button_2_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins){
@@ -155,7 +157,7 @@ void button_2_handler(const struct device *dev, struct gpio_callback *cb, uint32
 	char merkki = 'Y';
 	struct data_t *sendY = k_malloc(sizeof(struct data_t));
 	sendY->color = merkki;
-	sendY->duration = yellow_duration;
+	sendY->duration = 1;
 	k_fifo_put(&dispatcher_fifo, sendY);
 }
 void button_3_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins){
@@ -163,7 +165,7 @@ void button_3_handler(const struct device *dev, struct gpio_callback *cb, uint32
 	char merkki = 'G';
 	struct data_t *sendG = k_malloc(sizeof(struct data_t));
 	sendG->color = merkki;
-	sendG->duration = green_duration;
+	sendG->duration = 1;
 	k_fifo_put(&dispatcher_fifo, sendG);
 }
 void button_4_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins){
@@ -470,7 +472,7 @@ static void uart_task(void *unused1, void *unused2, void *unused3)
 
     while (true) {
         if (uart_poll_in(uart_dev, &rc) == 0) {
-            if (rc != '\r') {
+            if (rc != 'X') {
                 if (uart_msg_cnt < sizeof(uart_msg) - 1) {
                     uart_msg[uart_msg_cnt++] = rc;
                 }
@@ -478,11 +480,15 @@ static void uart_task(void *unused1, void *unused2, void *unused3)
                 // Process complete message
                 uart_msg[uart_msg_cnt] = '\0';
                 
-                // Parse commands
+                // Parse time commands
 				if (uart_msg[0] >= '0' && uart_msg[0] <= '9') {
+					// Send message to time_parser
 						int time = time_parse(uart_msg);
+						// Print back to robot with X
+						printk("%dX", time);
+						//printk("\n");
 						if (time >= 0) {
-							printk("Parsed time: %d seconds\n", time);
+							// printk("Parsed time: %d seconds\n", time);
 							// Time parse returns a valid time, send red command to fifo and start timer
 							struct data_t *sendR = k_malloc(sizeof(struct data_t));
 							sendR->color = 'R';
@@ -491,10 +497,12 @@ static void uart_task(void *unused1, void *unused2, void *unused3)
 							k_timer_init(&timer, timer_handler, NULL);
 							k_timer_start(&timer, K_SECONDS(time), K_NO_WAIT); // start delay is returned time.
 
-						} else {
-							printk("Time parse error: %d\n", time);
 						}
-					}
+					} else {
+
+				printk("%sX", uart_msg); // Print back to robot with X
+				//printk("\n");
+				// Parse commands with RYG letters and duration
                 for (int i = 0; i < uart_msg_cnt; i++) {
                     char merkki = uart_msg[i];
                     //UARTista tuleva aikamerkkijono tarkistetaan ohjelmassa time_parse, joka palauttaa ajan jonka päästä ajastinkeskeytys tapahtuu.
@@ -535,15 +543,17 @@ static void uart_task(void *unused1, void *unused2, void *unused3)
                             buf->color = color;
                             buf->duration = duration;
                             k_fifo_put(&dispatcher_fifo, buf);
-                            printk("Queued: %c for %d seconds\n", color, duration);
+                            //printk("Queued: %c for %d seconds\n", color, duration);
                         }
                     }
                 }
+			}
                 
                 uart_msg_cnt = 0;
                 memset(uart_msg, 0, sizeof(uart_msg));
             }
         }
+		
         k_msleep(10);
     }
 }
@@ -584,7 +594,7 @@ static void dispatcher_task(void *unused1, void *unused2, void *unused3)
                 k_mutex_unlock(&yellow_mutex);
                 break;
             default:
-                printk("Invalid color: %c\n", color);
+                //printk("Invalid color: %c\n", color);
                 continue;
         }
 		k_sem_take(&release_sem, K_FOREVER);
