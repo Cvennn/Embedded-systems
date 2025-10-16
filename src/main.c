@@ -22,7 +22,7 @@ gtest kansiossa yksikkötestit time_parse funktiolle, Gtest_results.png kuva tul
 joka asettaa punaisen LEDin päälle tietyn ajan esim "000008" = punainen LED 8 sekuntia.
 
 Viikkotehtävä 6 ,1p.
-Robotframework aikamerkkijono robotilla
+Robotframework testaukset: merkkijonokäsky, aikakäsky, vääränkokoinen lyhyt aikakäsky
 */
 
 #include <stdio.h>
