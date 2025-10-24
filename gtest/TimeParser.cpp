@@ -9,9 +9,21 @@ int time_parse(char *time) {
 	int seconds = TIME_LEN_ERROR;
 
 	// Check that string is not null
-	if(time == nullptr) {
+	if(time == NULL) {
 		return TIME_ARRAY_ERROR;
 	}
+
+	// String lenght check for exactly 6 characters
+
+	if (strlen(time) < 6 || strlen(time) > 6) {
+		return TIME_LEN_ERROR;
+	}
+	
+	// Check time is not 0
+	if (strcmp(time, "000000") == 0) {
+		return TIME_VALUE_ERROR;
+	}
+	
 	// Parse values from time string
 	// For example: 124033 -> 12hour 40min 33sec
     int values[3];
@@ -30,10 +42,7 @@ int time_parse(char *time) {
 		return TIME_VALUE_ERROR;
 	}
 
-	// String lenght check
-	if (strlen(time) != 6) {
-		return TIME_LEN_ERROR;
-	}
+
 
 	// Calculate return value from the parsed minutes and seconds
 	seconds = values[0] * 3600 + values[1] * 60 + values[2];
