@@ -17,9 +17,11 @@ Jokaiselle valotaskille ajan mittaaminen mikrosekuntien tarkkuudella. Kuvat timi
 Dispatcherin ajoitukset mitattu.
 Kuvat: kaikki printit päällä, LED taskien printit pois päältä ja dispatcherin sekä LED taskien printit pois päältä.
 
-Viikkotehtävä 5, 1p.
-gtest kansiossa yksikkötestit time_parse funktiolle, Gtest_results.png kuva tuloksista. Ajastinkeskeytys toiminnallisuus lisätty,
-joka asettaa punaisen LEDin päälle tietyn ajan esim "000008" = punainen LED 8 sekuntia.
+Viikkotehtävä 5, 2p.
+gtest kansiossa yksikkötestit time_parse funktiolle, Gtest_results.png kuva tuloksista.
+Google testit testaavat merkkijonon pituuden(yli tai alle 6 merkkiä), väärän ajan(esim. "000066"), Aika nollana("000000") ja ettei syötetty merkkijono ole NULL.
+Ajastinkeskeytys toiminnallisuus lisätty, joka asettaa punaisen LEDin päälle tietyn ajan esim "000008" = punainen LED 8 sekuntia.
+time_parse funktiossa tarkistetaan ettei syötetty arvo ole "000000", arvo ei ole NULL, eikä arvo ole vääränpituinen yli tai alle 6 merkkiä.
 
 Viikkotehtävä 6 ,1p.
 Robotframework testaukset: merkkijonokäsky, aikakäsky, vääränkokoinen lyhyt aikakäsky
@@ -289,12 +291,17 @@ int time_parse(char *time) {
 	if(time == NULL) {
 		return TIME_ARRAY_ERROR;
 	}
+
 	// String lenght check for exactly 6 characters
 
 	if (strlen(time) < 6 || strlen(time) > 6) {
 		return TIME_LEN_ERROR;
 	}
 	
+	// Check time is not 0
+	if (strcmp(time, "000000") == 0) {
+		return TIME_VALUE_ERROR;
+	}
 	
 	// Parse values from time string
 	// For example: 124033 -> 12hour 40min 33sec

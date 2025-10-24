@@ -15,6 +15,12 @@ TEST(TimeParserTest, TestCaseIncorrectTime) {
     ASSERT_EQ(time_parse(time_test), TIME_VALUE_ERROR);
 }
 
+TEST(TimeParserTest, TestCaseTimeZero) {
+    // Test with time string representing zero
+    char time_test[] = "000000";
+    ASSERT_EQ(time_parse(time_test), TIME_VALUE_ERROR);
+}
+
 TEST(TimeParserTest, TestCaseIncorrectLengthShort) {
 
     // Test with incorrect length
