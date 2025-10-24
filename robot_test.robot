@@ -18,14 +18,12 @@ Connect Serial
 	Reset Output Buffer
 
 Serial Led Control
-	Reset Input Buffer
-    Reset Output Buffer
 	
 	# lähetetään RYG ja lopetusmerkki X
 	Write Data   R,1X   encoding=ascii 
 	Log To Console   Send sequence R,1X
 
-	# vastaanotetaan merkkijono kunnes lopetusmerkki X (58) 
+	# vastaanotetaan merkkijono kunnes lopetusmerkki X (88) 
 	${read} =   Read Until   terminator=88   encoding=ascii 
 
 	# konsolille näkyviin vastaanotettu merkkijono
@@ -42,9 +40,9 @@ Serial Time Control
     Reset Input Buffer
     Reset Output Buffer
 
-	# lähetetään 000005
-	Write Data  000005X  encoding=ascii
-	Log To Console  Send sequence 000005
+	# lähetetään 000002
+	Write Data  000002X  encoding=ascii
+	Log To Console  Send sequence 000002
 
 	${read} =  Read Until  terminator=88  encoding=ascii  timeout=10
 	Log To Console   Received  ${read}
@@ -52,13 +50,33 @@ Serial Time Control
 
 	Log To Console   Vastauksen pituus: ${read} merkkiä
     ${clean_read} =  Strip String  ${read}  characters=:
-    Should Be Equal As Strings  ${clean_read}  5X
-    Log To Console  Tested 5X result is ${clean_read}
+    Should Be Equal As Strings  ${clean_read}  2X
+    Log To Console  Tested 2X result is ${clean_read}
 
-	Sleep  5 second
+	#Sleep  3 second
+
+Serial Time Zero
+	Port Should Be Open  ${com}
+    
+    # Tyhjennä puskurit ennen testiä
+    Reset Input Buffer
+    Reset Output Buffer
+
+	# lähetetään aika 0
+	Write Data  000000X  encoding=ascii
+	Log To Console  Sent 000000X
+
+	${read} =  Read Until  terminator=88  encoding=ascii  timeout=10
+	Log To Console  Received  ${read}
+
+	${clean_read} =  Strip String  ${read}  characters=:
+    Should Be Equal As Strings  ${clean_read}  -3X
+    Log To Console  Tested -3X result is ${clean_read}
 
 Serial Incorrect Time lengthshort
     Port Should Be Open  ${com}
+    
+    # Tyhjennä puskurit ennen testiä
     Reset Input Buffer
     Reset Output Buffer
 
@@ -75,24 +93,32 @@ Serial Incorrect Time lengthshort
     Should Be Equal As Strings  ${clean_read}  -1X
     Log To Console  Tested -1X result is ${clean_read}
 
-	Sleep  2 second
+	
 
 Serial Incorrect Time lengthlong
-	Reset Input Buffer
+    Port Should Be Open  ${com}
+    
+    # Tyhjennä puskurit ennen testiä
+    Reset Input Buffer
     Reset Output Buffer
 
-	# Lähetetään vääränkokoinen aika 
-    Write Data  1412000X  encoding=ascii
-	Log To Console  Sent 1412000X
+    # Lähetetään vääränkokoinen aika 
+    Write Data  0000005X  encoding=ascii
+	Log To Console  Sent 0000005X
 
-	${read} =  Read Until  terminator=88  encoding=ascii  timeout=10
+	#Sleep  800 ms
+    ${read} =  Read Until  terminator=88  encoding=ascii  timeout=10
 	Log To Console   Received  ${read}
 	Should Not Be Empty  ${read}
-
-	Log To Console   Vastaus: ${read}
+    
+    Log To Console   Vastaus: ${read}
     ${clean_read} =  Strip String  ${read}  characters=:
     Should Be Equal As Strings  ${clean_read}  -1X
     Log To Console  Tested -1X result is ${clean_read}
+
+	#Sleep  2 second
+
+
 
 Disconnect Serial
 	Reset Input Buffer

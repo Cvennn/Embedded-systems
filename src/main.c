@@ -24,10 +24,11 @@ Ajastinkeskeytys toiminnallisuus lisätty, joka asettaa punaisen LEDin päälle 
 time_parse funktiossa tarkistetaan ettei syötetty arvo ole "000000", arvo ei ole NULL, eikä arvo ole vääränpituinen yli tai alle 6 merkkiä.
 
 Viikkotehtävä 6 ,1p.
-Robotframework testaukset: merkkijonokäsky, aikakäsky, vääränkokoinen lyhyt aikakäsky
+Robotframework testaukset: merkkijonokäsky,oikea aikakäsky, vääränkokoinen lyhyt aikakäsky, vääränkokoinen pitkä käsky, aikakomento nollana.
 */
 
 #include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 #include <stdlib.h>
 #include <zephyr/kernel.h>
@@ -38,6 +39,7 @@ Robotframework testaukset: merkkijonokäsky, aikakäsky, vääränkokoinen lyhyt
 #include <inttypes.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/timing/timing.h>
+
 
 // configure buttons
 #define BUTTON_0 DT_ALIAS(sw0)
@@ -114,7 +116,7 @@ void timer_handler(struct k_timer *timer_id);
 // FIFO dispatcher data type
 struct data_t {
 	void *fifo_reserved;
-	char msg[20];
+	char msg[64];
 	char color;
 	int duration;
 };
@@ -372,11 +374,11 @@ void red_led_task(void *, void *, void*) {
 		uint64_t time_ns = timing_cycles_to_ns(timing_cycles_get(&start_time, &end_time));
 		uint64_t time_mikros = time_ns / 1000;
 
-		struct data_d *buf = k_malloc(sizeof(struct data_t));
+		struct data_d *buf = k_malloc(sizeof(struct data_d));
 		strncpy(buf->msg, "Red task time in microseconds: ", sizeof(buf->msg) - 1);
 		buf->msg[sizeof(buf->msg) - 1] = '\0'; // ensure null termination
 		buf->number = time_mikros;
-		k_fifo_put(&dispatcher_fifo, buf);
+		k_fifo_put(&debug_fifo, buf);
 		//printk("Red task time in mikroseconds: %lld\n", time_mikros);
 	}	
 }
@@ -473,11 +475,21 @@ void blue_led_task(void *, void *, void*) {
 	}
 }
 
-// Refactor UART to read full message and parse from that
+static void uart_send_str(const char *s)
+{
+    if (!uart_dev || !device_is_ready(uart_dev)) {
+        return;
+    }
+    const char *p = s;
+    while (*p) {
+        uart_poll_out(uart_dev, *p++);
+    }
+}
+
 static void uart_task(void *unused1, void *unused2, void *unused3)
 {
     char rc = 0;
-    char uart_msg[20];
+    char uart_msg[64];
     memset(uart_msg, 0, sizeof(uart_msg));
     int uart_msg_cnt = 0;
 
@@ -496,8 +508,10 @@ static void uart_task(void *unused1, void *unused2, void *unused3)
 					// Send message to time_parser
 						int time = time_parse(uart_msg);
 						// Print back to robot with X
-						printk("%dX", time);
-						//printk("\n");
+						//printk("%dX", time);
+						char outbuf[16];
+						snprintf(outbuf, sizeof(outbuf), "%dX", time);
+						uart_send_str(outbuf);
 						if (time >= 0) {
 							// printk("Parsed time: %d seconds\n", time);
 							// Time parse returns a valid time, send red command to fifo and start timer
@@ -507,12 +521,17 @@ static void uart_task(void *unused1, void *unused2, void *unused3)
 							k_fifo_put(&dispatcher_fifo, sendR);
 							k_timer_init(&timer, timer_handler, NULL);
 							k_timer_start(&timer, K_SECONDS(time), K_NO_WAIT); // start delay is returned time.
-
+							
+							// clear uart_msg
+							memset(uart_msg, 0, sizeof(uart_msg));
 						}
 					} else {
 
-				printk("%sX", uart_msg); // Print back to robot with X
-				//printk("\n");
+				//printk("%sX", uart_msg); // Print back to robot with X
+						char outbuf[80];
+						snprintf(outbuf, sizeof(outbuf), "%sX", uart_msg);
+						uart_send_str(outbuf);
+
 				// Parse commands with RYG letters and duration
                 for (int i = 0; i < uart_msg_cnt; i++) {
                     char merkki = uart_msg[i];
@@ -554,6 +573,7 @@ static void uart_task(void *unused1, void *unused2, void *unused3)
                             buf->color = color;
                             buf->duration = duration;
                             k_fifo_put(&dispatcher_fifo, buf);
+						
                             //printk("Queued: %c for %d seconds\n", color, duration);
                         }
                     }
@@ -575,10 +595,10 @@ static void dispatcher_task(void *unused1, void *unused2, void *unused3)
 	while (true) {
 		// Receive dispatcher data from uart_task fifo
 		struct data_t *rec_item = k_fifo_get(&dispatcher_fifo, K_FOREVER);
-		char sequence[20];
+		char sequence[64];
 		char color = rec_item->color;
 		int duration = rec_item->duration;
-		memcpy(sequence,rec_item->msg,20);
+		memcpy(sequence,rec_item->msg,64);
 		k_free(rec_item);
 
 		//Send dispatcher debug info to a debug fifo
